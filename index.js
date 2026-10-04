@@ -15,13 +15,21 @@ const {
 } = require('discord.js');
 const http = require('http');
 
-// TUTAJ WKLEJ ID SWOJEGO PRYWATNEGO KANAŁU SZTABOWEGO
+// ==================== KONFIGURACJA KANAŁÓW ====================
 const PRIVATE_ADMIN_CHANNEL_ID = '1556289411422093362';
+const PUBLIC_LOGS_CHANNEL_ID = '1556292054827536474';
+// =============================================================
 
-// Serwer HTTP dla Render.com
+// Baza danych w pamięci bota
+let isSkupOpen = true;
+const stats = {
+  totalSpent: 0,
+  totalItems: 0
+};
+
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Bot Skup MajesticRP v3 dziala!');
+  res.end('Bot Skup MajesticRP v4 Ultra dziala!');
 }).listen(process.env.PORT || 3000);
 
 const client = new Client({
@@ -33,19 +41,36 @@ const client = new Client({
   ]
 });
 
-// Zapobieganie wyłączaniu się bota przy niespodziewanych błędach API Discorda
 process.on('unhandledRejection', (error) => {
-  console.error('⚠️️ Wyłapano nieobsłużony błąd (unhandledRejection):', error);
+  console.error('⚠ Wyłapano nieobsługiwany błąd (unhandledRejection):', error);
 });
 
 process.on('uncaughtException', (error) => {
-  console.error('⚠️ Wyłapano nieobsłużony wyjątek (uncaughtException):', error);
+  console.error('⚠️ Wyłapano nieobsługiwany wyjątek (uncaughtException):', error);
 });
 
+// Rejestracja komend slash
 const commands = [
   new SlashCommandBuilder()
     .setName('setup_skup')
-    .setDescription('Tworzy publiczny panel skupu przedmiotow MajesticRP')
+    .setDescription('Tworzy publiczny panel skupu przedmiotów MajesticRP')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder()
+    .setName('skup_status')
+    .setDescription('Otwiera lub zamyka przyjmowanie ofert skupu')
+    .addStringOption(option => 
+      option.setName('stan')
+        .setDescription('Wybierz stan skupu')
+        .setRequired(true)
+        .addChoices(
+          { name: '🟢 Otwarty', value: 'open' },
+          { name: '🔴 Zamknięty', value: 'closed' }
+        )
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder()
+    .setName('statystyki')
+    .setDescription('Wyświetla statystyki finansowe skupu')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ];
 
@@ -58,7 +83,7 @@ client.once('ready', async () => {
       Routes.applicationCommands(client.user.id),
       { body: commands }
     );
-    console.log('✅ Komenda /setup_skup zostala pomyślnie zarejestrowana!');
+    console.log('✅ Komendy slash zaktualizowane!');
   } catch (error) {
     console.error('❌ Błąd rejestracji komend:', error);
   }
@@ -66,34 +91,65 @@ client.once('ready', async () => {
 
 client.on('interactionCreate', async (interaction) => {
   try {
-    // 1. Wysyłanie publicznego panelu (/setup_skup)
-    if (interaction.isChatInputCommand() && interaction.commandName === 'setup_skup') {
-      const embed = new EmbedBuilder()
-        .setTitle('🏬 SKUP UNIKATÓW & MYTHICÓW — MAJESTIC RP')
-        .setDescription(
-          '**Szybka gotówka od ręki bez marnowania czasu na rynku!**\n\n' +
-          'Chcesz szybko sprzedać rzadkie ubrania, unikatowe pojazdy lub akcesoria?\n' +
-          'Złóż ofertę, a rozpatrzymy ją w kilka minut!\n\n' +
-          '📌 **Zasady Skupu:**\n' +
-          '• Skupujemy przedmioty za **50% – 70%** wartości rynkowej.\n' +
-          '• Nie skupujemy zwykłych ubrań ze sklepów ani podstawowych aut.\n' +
-          '• Odpowiedź z decyzją lub kontrofertą otrzymasz na PW od bota!'
-        )
-        .setColor(0x2b2d31)
-        .setFooter({ text: 'Kliknij przycisk poniżej, aby wysłać zgłoszenie.' });
+    // 1. Komendy Admina (/setup_skup, /skup_status, /statystyki)
+    if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === 'setup_skup') {
+        const embed = new EmbedBuilder()
+          .setTitle('🏬 SKUP UNIKATÓW & MYTHICÓW — MAJESTIC RP')
+          .setDescription(
+            '**Szybka gotówka od ręki bez marnowania czasu na rynku!**\n\n' +
+            'Chcesz szybko sprzedać rzadkie ubrania, unikatowe pojazdy lub akcesoria?\n' +
+            'Złóż ofertę, a rozpatrzymy ją w kilka minut!\n\n' +
+            '📌 **Zasady Skupu:**\n' +
+            '• Skupujemy przedmioty za **50% – 70%** wartości rynkowej.\n' +
+            '• Nie skupujemy zwykłych ubrań ze sklepów ani podstawowych aut.\n' +
+            '• Odpowiedź z decyzją lub kontrofertą otrzymasz na PW od bota!'
+          )
+          .setColor(0x2b2d31)
+          .setFooter({ text: 'Kliknij przycisk poniżej, aby wysłać zgłoszenie.' });
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('start_sell')
-          .setLabel('💰 Sprzedaj Przedmiot (Złóż Ofertę)')
-          .setStyle(ButtonStyle.Success)
-      );
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('start_sell')
+            .setLabel('💰 Sprzedaj Przedmiot (Złóż Ofertę)')
+            .setStyle(ButtonStyle.Success)
+        );
 
-      await interaction.reply({ embeds: [embed], components: [row] });
+        await interaction.reply({ embeds: [embed], components: [row] });
+      }
+
+      if (interaction.commandName === 'skup_status') {
+        const status = interaction.options.getString('stan');
+        isSkupOpen = (status === 'open');
+        await interaction.reply({ 
+          content: `⚙️ Status skupu został zmieniony na: **${isSkupOpen ? '🟢 OTWARTY' : '🔴 ZAMKNIĘTY'}**`, 
+          ephemeral: true 
+        });
+      }
+
+      if (interaction.commandName === 'statystyki') {
+        const statsEmbed = new EmbedBuilder()
+          .setTitle('📊 STATYSTYKI FINANSOWE SKUPU')
+          .setColor(0xf1c40f)
+          .addFields(
+            { name: '💰 Łącznie wydano na skupie', value: `$${stats.totalSpent.toLocaleString()}`, inline: true },
+            { name: '📦 Kupione przedmioty', value: `${stats.totalItems} szt.`, inline: true }
+          )
+          .setTimestamp();
+
+        await interaction.reply({ embeds: [statsEmbed], ephemeral: true });
+      }
     }
 
-    // 2. Otwieranie Modala dla Gracza
+    // 2. Kliknięcie "Sprzedaj Przedmiot"
     if (interaction.isButton() && interaction.customId === 'start_sell') {
+      if (!isSkupOpen) {
+        return await interaction.reply({
+          content: '🔴 **Skup jest obecnie ZAMKNIĘTY.** Spróbuj ponownie później!',
+          ephemeral: true
+        });
+      }
+
       const modal = new ModalBuilder()
         .setCustomId('sell_modal')
         .setTitle('Formularz Sprzedaży Przedmiotu');
@@ -144,7 +200,7 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.showModal(modal);
     }
 
-    // 3. Wysyłanie oferty od Gracza -> Idzie na Twój PRYWATNY KANAŁ
+    // 3. Obsługa Wysyłania Formularza
     if (interaction.isModalSubmit() && interaction.customId === 'sell_modal') {
       const itemName = interaction.fields.getTextInputValue('item_name');
       const marketValueRaw = interaction.fields.getTextInputValue('market_value').replace(/[^0-9]/g, '');
@@ -204,7 +260,7 @@ client.on('interactionCreate', async (interaction) => {
           });
         }
       } catch (err) {
-        console.error('Błąd wysyłania na prywatny kanał (Sprawdź czy ID kanału jest poprawne):', err);
+        console.error('Błąd wysyłania na prywatny kanał:', err);
       }
     }
 
@@ -214,18 +270,52 @@ client.on('interactionCreate', async (interaction) => {
 
       if (action === 'accept') {
         const itemName = rest[0];
-        const price = rest[1];
+        const price = parseInt(rest[1]) || 0;
+
+        // Aktualizacja statystyk
+        stats.totalSpent += price;
+        stats.totalItems += 1;
 
         try {
           const user = await client.users.fetch(userId);
-          await user.send(
-            `🎉 **Twoja oferta została AKCEPTOWANA!**\n\n` +
-            `📦 **Przedmiot:** ${itemName}\n` +
-            `💵 **Kwota:** $${parseInt(price).toLocaleString()}\n\n` +
-            `Skontaktuj się z właścicielem skupu na serwerze/w grze, aby przekazać przedmiot i odebrać gotówkę!`
+          
+          const vouchRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId('write_vouch')
+              .setLabel('⭐ Wystaw Opinię (Vouch)')
+              .setStyle(ButtonStyle.Secondary)
           );
 
-          await interaction.reply({ content: `✅ Zaakceptowano ofertę gracza <@${userId}>. Bot wysłał mu PW!`, ephemeral: false });
+          await user.send({
+            content: `🎉 **Twoja oferta została AKCEPTOWANA!**\n\n` +
+            `📦 **Przedmiot:** ${itemName}\n` +
+            `💵 **Kwota:** $${price.toLocaleString()}\n\n` +
+            `Skontaktuj się z właścicielem skupu w grze/na Discordzie, aby sfinalizować transakcję!`,
+            components: [vouchRow]
+          });
+
+          // Wpis na publiczny kanał zrealizowanych transakcji
+          try {
+            const publicLogsChannel = await client.channels.fetch(PUBLIC_LOGS_CHANNEL_ID);
+            if (publicLogsChannel) {
+              const logEmbed = new EmbedBuilder()
+                .setTitle('🤝 ZREALIZOWANA TRANSAKCJA SKUPU')
+                .setColor(0x2ecc71)
+                .addFields(
+                  { name: '📦 Wykupiony Przedmiot', value: itemName, inline: true },
+                  { name: '💰 Wypłacona Gotówka', value: `$${price.toLocaleString()}`, inline: true },
+                  { name: '👤 Sprzedający', value: `<@${userId}>`, inline: true }
+                )
+                .setFooter({ text: 'Szybka wypłata od ręki • Dołącz do naszych zadowolonych klientów!' })
+                .setTimestamp();
+
+              await publicLogsChannel.send({ embeds: [logEmbed] });
+            }
+          } catch (e) {
+            console.error('Błąd publikacji logu transakcji:', e);
+          }
+
+          await interaction.reply({ content: `✅ Zaakceptowano ofertę gracza <@${userId}>. Dodano do statystyk i opublikowano log!`, ephemeral: false });
         } catch (err) {
           await interaction.reply({ content: `⚠️️ Zaakceptowano, ale gracz ma zablokowane PW!`, ephemeral: false });
         }
@@ -265,9 +355,26 @@ client.on('interactionCreate', async (interaction) => {
           await interaction.reply({ content: `⚠️ Odrzucono ofertę, ale gracz ma zablokowane PW!`, ephemeral: false });
         }
       }
+
+      // Przycisk "Wystaw Opinię" dla gracza
+      if (interaction.customId === 'write_vouch') {
+        const modal = new ModalBuilder()
+          .setCustomId('submit_vouch_modal')
+          .setTitle('Zostaw Opinię o Skupie');
+
+        const commentInput = new TextInputBuilder()
+          .setCustomId('vouch_comment')
+          .setLabel('Napisz krótką opinię')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('np. Polecam skup, szybka wypłata 10/10!')
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(commentInput));
+        await interaction.showModal(modal);
+      }
     }
 
-    // 5. Wysyłanie Kontroferty do Gracza na PW
+    // 5. Wysyłanie Kontroferty
     if (interaction.isModalSubmit() && interaction.customId.startsWith('submit_counter_')) {
       const [, , userId, itemName] = interaction.customId.split('_');
       const counterPriceRaw = interaction.fields.getTextInputValue('counter_price').replace(/[^0-9]/g, '');
@@ -285,6 +392,28 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ content: `💬 Wysyłano kontrofertę ($${counterPrice.toLocaleString()}) do gracza <@${userId}> na PW!`, ephemeral: false });
       } catch (err) {
         await interaction.reply({ content: `⚠️ Nie udało się wysłać kontroferty (gracz zablokował PW).`, ephemeral: false });
+      }
+    }
+
+    // 6. Wysyłanie Opinii przez Gracza
+    if (interaction.isModalSubmit() && interaction.customId === 'submit_vouch_modal') {
+      const comment = interaction.fields.getTextInputValue('vouch_comment');
+
+      try {
+        const publicLogsChannel = await client.channels.fetch(PUBLIC_LOGS_CHANNEL_ID);
+        if (publicLogsChannel) {
+          const vouchEmbed = new EmbedBuilder()
+            .setTitle('⭐ NOWA OPINIA KLIENTA')
+            .setColor(0xf1c40f)
+            .setDescription(`*"${comment}"*`)
+            .addFields({ name: '👤 Klient', value: `${interaction.user}`, inline: true })
+            .setTimestamp();
+
+          await publicLogsChannel.send({ embeds: [vouchEmbed] });
+        }
+        await interaction.reply({ content: `❤️ Dziękujemy za wystawienie opinii!`, ephemeral: true });
+      } catch (e) {
+        console.error('Błąd publikacji opinii:', e);
       }
     }
   } catch (err) {
