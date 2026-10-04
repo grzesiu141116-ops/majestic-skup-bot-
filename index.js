@@ -8,7 +8,6 @@ const {
   ModalBuilder, 
   TextInputBuilder, 
   TextInputStyle, 
-  ChannelType, 
   PermissionFlagsBits, 
   REST, 
   Routes, 
@@ -16,10 +15,10 @@ const {
 } = require('discord.js');
 const http = require('http');
 
-// Serwer HTTP wymagany przez Web Service na Render.com
+// Utrzymanie serwera dla Render.com
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Bot Skup MajesticRP dziala 24/7!');
+  res.end('Bot Skup MajesticRP v2 dziala!');
 }).listen(process.env.PORT || 3000);
 
 const client = new Client({
@@ -48,156 +47,183 @@ client.once('ready', async () => {
       Routes.applicationCommands(client.user.id),
       { body: commands }
     );
-    console.log('✅ Komenda /setup_skup zostala pomyślnie zarejestrowana!');
+    console.log('✅ Komenda /setup_skup została pomyślnie zarejestrowana!');
   } catch (error) {
-    console.error('❌ Błąd podczas rejestracji komend:', error);
+    console.error('❌ Błąd rejestracji komend:', error);
   }
 });
 
-// Obsługa komend i interakcji
 client.on('interactionCreate', async (interaction) => {
-  // 1. Komenda /setup_skup
-  if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === 'setup_skup') {
-      const embed = new EmbedBuilder()
-        .setTitle('🏬 SKUP UNIKATÓW & MYTHICÓW — MAJESTRIC RP')
-        .setDescription(
-          '**Szybka gotówka na rękę!**\n\n' +
-          'Masz unikalne ubrania, nakrycia głowy V2, auta z karnetu lub rzadkie akcesoria? ' +
-          'Sprzedaj je u nas w kilka chwil bez marnowania czasu na rynku.\n\n' +
-          '📌 **Zasady skupu:**\n' +
-          '• Oferujemy **50% - 70%** wartości rynkowej (szybki wykup za płynność).\n' +
-          '• **NIE skupujemy** zwykłych ubrań z binka, podstawowych aut ani śmieci.\n' +
-          '• Wymagany dowód posiadania (screen z gry z widocznym UID/przedmiotem).\n\n' +
-          'Kliknij przycisk poniżej, aby złożyć ofertę!'
-        )
-        .setColor(0x2b2d31)
-        .setFooter({ text: 'MajesticRP Skup Bot • Oficjalny Panel' });
+  // 1. Wysyłanie publicznego panelu
+  if (interaction.isChatInputCommand() && interaction.commandName === 'setup_skup') {
+    const embed = new EmbedBuilder()
+      .setTitle('🏬 SKUP UNIKATÓW & MYTHICÓW — MAJESTIC RP')
+      .setDescription(
+        '**Szybka gotówka na rękę od ręki!**\n\n' +
+        'Chcesz szybko sprzedać rzadkie ubrania, unikatowe pojazdy lub akcesoria?\n' +
+        'Złóż ofertę, a rozpatrzymy ją w kilka minut!\n\n' +
+        '📌 **Zasady Skupu:**\n' +
+        '• Skupujemy przedmioty za **50% – 70%** wartości rynkowej.\n' +
+        '• Nie skupujemy zwykłych ubrań ze sklepów ani podstawowych pojazdów.\n' +
+        '• Oferty rozpatrujemy indywidualnie.'
+      )
+      .setColor(0x2b2d31)
+      .setFooter({ text: 'Kliknij przycisk poniżej, aby wysłać zgłoszenie.' });
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('start_sell')
-          .setLabel('💰 Sprzedaj Przedmiot (Szybka Kasa)')
-          .setStyle(ButtonStyle.Success)
-      );
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('start_sell')
+        .setLabel('💰 Sprzedaj Przedmiot')
+        .setStyle(ButtonStyle.Success)
+    );
 
-      await interaction.reply({ embeds: [embed], components: [row] });
-    }
+    await interaction.reply({ embeds: [embed], components: [row] });
   }
 
-  // 2. Kliknięcie przycisku "Sprzedaj Przedmiot" -> Otwarcie Modala
+  // 2. Otwieranie Modala Formularza
+  if (interaction.isButton() && interaction.customId === 'start_sell') {
+    const modal = new ModalBuilder()
+      .setCustomId('sell_modal')
+      .setTitle('Formularz Sprzedaży Przedmiotu');
+
+    const itemNameInput = new TextInputBuilder()
+      .setCustomId('item_name')
+      .setLabel('Nazwa przedmiotu')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('np. Słuchawki Apple V2 / Torba Gucci')
+      .setRequired(true);
+
+    const marketValueInput = new TextInputBuilder()
+      .setCustomId('market_value')
+      .setLabel('Szacowana wartość rynkowa ($)')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('np. 19000000')
+      .setRequired(true);
+
+    const expectedPriceInput = new TextInputBuilder()
+      .setCustomId('expected_price')
+      .setLabel('Ile Ty za to chcesz? ($)')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('np. 12000000')
+      .setRequired(true);
+
+    const wikiLinkInput = new TextInputBuilder()
+      .setCustomId('wiki_link')
+      .setLabel('Link do Majestic Wiki (Opcjonalnie)')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('https://wiki.majestic-rp.ru/...')
+      .setRequired(false);
+
+    const proofInput = new TextInputBuilder()
+      .setCustomId('proof_link')
+      .setLabel('Link do Zdjęcia / Screena (Ctrl+V Imgur)')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('https://i.imgur.com/... (lub wyślij fotkę w wiadomości)')
+      .setRequired(false);
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(itemNameInput),
+      new ActionRowBuilder().addComponents(marketValueInput),
+      new ActionRowBuilder().addComponents(expectedPriceInput),
+      new ActionRowBuilder().addComponents(wikiLinkInput),
+      new ActionRowBuilder().addComponents(proofInput)
+    );
+
+    await interaction.showModal(modal);
+  }
+
+  // 3. Obsługa Wysyłania Formularza -> Zgłoszenie na Twój prywatny kanał
+  if (interaction.isModalSubmit() && interaction.customId === 'sell_modal') {
+    const itemName = interaction.fields.getTextInputValue('item_name');
+    const marketValueRaw = interaction.fields.getTextInputValue('market_value').replace(/[^0-9]/g, '');
+    const expectedPriceRaw = interaction.fields.getTextInputValue('expected_price').replace(/[^0-9]/g, '');
+    const wikiLink = interaction.fields.getTextInputValue('wiki_link') || 'Brak linku do Wiki';
+    const proofLink = interaction.fields.getTextInputValue('proof_link') || 'Brak wklejonego linku (sprawdź załącznik)';
+
+    const marketValue = parseInt(marketValueRaw) || 0;
+    const expectedPrice = parseInt(expectedPriceRaw) || 0;
+
+    // Kalkulacja widełek sugerowanego skupu (50% - 70%)
+    const minBuy = Math.round(marketValue * 0.5);
+    const maxBuy = Math.round(marketValue * 0.7);
+
+    const offerEmbed = new EmbedBuilder()
+      .setTitle(`📥 NOWA OFERTA: ${itemName}`)
+      .setColor(0x3498db)
+      .addFields(
+        { name: '👤 Sprzedający', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
+        { name: '🆔 ID Discord Gracza', value: `\`${interaction.user.id}\``, inline: true },
+        { name: '📦 Przedmiot', value: itemName, inline: false },
+        { name: '💎 Rynkowa Wartość', value: `$${marketValue.toLocaleString()}`, inline: true },
+        { name: '💵 Chce dostać', value: `$${expectedPrice.toLocaleString()}`, inline: true },
+        { name: '📊 Sugerowany Skup (50%-70%)', value: `\`$${minBuy.toLocaleString()} - $${maxBuy.toLocaleString()}\``, inline: false },
+        { name: '🌐 Majestic Wiki', value: wikiLink !== 'Brak linku do Wiki' ? `[Kliknij, aby otworzyć Wiki](${wikiLink})` : 'Nie podano', inline: true },
+        { name: '🖼️ Dowód / Screen', value: proofLink, inline: false }
+      )
+      .setFooter({ text: 'System Skupu • Podjmij decyzję przyciskami poniżej' })
+      .setTimestamp();
+
+    const adminButtons = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`accept_${interaction.user.id}_${itemName}_${expectedPrice}`)
+        .setLabel('✅ Akceptuj Ofertę')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`reject_${interaction.user.id}_${itemName}`)
+        .setLabel('❌ Odrzuć Ofertę')
+        .setStyle(ButtonStyle.Danger)
+    );
+
+    await interaction.reply({ 
+      content: '✅ Twoja oferta została pomyślnie wysłana do właściciela skupu! Otrzymasz wiadomość prywatną (PW) od bota, gdy oferta zostanie przeanalizowana.', 
+      ephemeral: true 
+    });
+
+    // Powiadomienie do Twojego prywatnego kanału (na którym wpisałeś /setup_skup lub na kanał zgłoszeń)
+    await interaction.channel.send({
+      content: `🔔 **Nowa oferta od gracza ${interaction.user}!**`,
+      embeds: [offerEmbed],
+      components: [adminButtons]
+    });
+  }
+
+  // 4. Obsługa Przycisków Decyzji (Akceptuj / Odrzuć) -> Wysyłanie PW do gracza
   if (interaction.isButton()) {
-    if (interaction.customId === 'start_sell') {
-      const modal = new ModalBuilder()
-        .setCustomId('sell_modal')
-        .setTitle('Formularz Sprzedaży Przedmiotu');
+    const [action, userId, ...rest] = interaction.customId.split('_');
 
-      const itemNameInput = new TextInputBuilder()
-        .setCustomId('item_name')
-        .setLabel('Nazwa przedmiotu (np. Słuchawki Apple V2)')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      const marketValueInput = new TextInputBuilder()
-        .setCustomId('market_value')
-        .setLabel('Orientacyjna wartość rynkowa ($)')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('np. 1500000')
-        .setRequired(true);
-
-      const expectedPriceInput = new TextInputBuilder()
-        .setCustomId('expected_price')
-        .setLabel('Twoja oczekiwana cena ($)')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('np. 900000')
-        .setRequired(true);
-
-      const proofInput = new TextInputBuilder()
-        .setCustomId('proof_link')
-        .setLabel('Link do screena (Imgur/Discord) z dowodem')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('https://imgur.com/...')
-        .setRequired(true);
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(itemNameInput),
-        new ActionRowBuilder().addComponents(marketValueInput),
-        new ActionRowBuilder().addComponents(expectedPriceInput),
-        new ActionRowBuilder().addComponents(proofInput)
-      );
-
-      await interaction.showModal(modal);
-    }
-
-    // Obsługa przycisków admina w prywatnym kanale
-    if (interaction.customId === 'admin_accept') {
-      await interaction.reply({ content: '✅ **Oferta zaakceptowana!** Gracz został powiadomiony, umów się na odbiór w grze.', ephemeral: false });
-    }
-    if (interaction.customId === 'admin_reject') {
-      await interaction.reply({ content: '❌ **Oferta odrzucona.** Kanał zostanie zamknięty.', ephemeral: false });
-    }
-  }
-
-  // 3. Wysyłanie formularza z Modala -> Tworzenie prywatnego kanału
-  if (interaction.isModalSubmit()) {
-    if (interaction.customId === 'sell_modal') {
-      const itemName = interaction.fields.getTextInputValue('item_name');
-      const marketValue = interaction.fields.getTextInputValue('market_value');
-      const expectedPrice = interaction.fields.getTextInputValue('expected_price');
-      const proofLink = interaction.fields.getTextInputValue('proof_link');
-
-      await interaction.deferReply({ ephemeral: true });
+    if (action === 'accept') {
+      const itemName = rest[0];
+      const price = rest[1];
 
       try {
-        const ticketChannel = await interaction.guild.channels.create({
-          name: `skup-${interaction.user.username}`,
-          type: ChannelType.GuildText,
-          permissionOverwrites: [
-            {
-              id: interaction.guild.id,
-              deny: [PermissionFlagsBits.ViewChannel]
-            },
-            {
-              id: interaction.user.id,
-              allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
-            }
-          ]
-        });
-
-        const offerEmbed = new EmbedBuilder()
-          .setTitle(`📥 Nowa Oferta Skupu: ${itemName}`)
-          .setColor(0xf1c40f)
-          .addFields(
-            { name: '👤 Sprzedający', value: `${interaction.user} (${interaction.user.tag})`, inline: true },
-            { name: '📦 Przedmiot', value: itemName, inline: true },
-            { name: '💎 Wartość Rynkowa', value: `$${marketValue}`, inline: true },
-            { name: '💵 Oczekiwana Cena', value: `$${expectedPrice}`, inline: true },
-            { name: '🖼️ Dowód Posiadania', value: proofLink }
-          )
-          .setFooter({ text: 'Oczekiwanie na decyzję Skupującego' })
-          .setTimestamp();
-
-        const adminRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId('admin_accept')
-            .setLabel('✅ Akceptuj Cenę')
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId('admin_reject')
-            .setLabel('❌ Odrzuć Ofertę')
-            .setStyle(ButtonStyle.Danger)
+        const user = await client.users.fetch(userId);
+        await user.send(
+          `🎉 **Twoja oferta została AKEPTOWANA!**\n\n` +
+          `📦 **Przedmiot:** ${itemName}\n` +
+          `💵 **Uzgodniona kwota:** $${parseInt(price).toLocaleString()}\n\n` +
+          `Napisz do nas na serwerze lub do właściciela skupu w grze/Discordzie, aby sfinalizować transakcję!`
         );
 
-        await ticketChannel.send({
-          content: `${interaction.user} Witaj! Oto Twój prywatny kanał transakcyjny. Wkrótce właściciel skupu przeanalizuje Twoją ofertę.`,
-          embeds: [offerEmbed],
-          components: [adminRow]
-        });
-
-        await interaction.editReply({ content: `✅ Stworzono prywatny kanał transakcyjny: ${ticketChannel}` });
+        await interaction.reply({ content: `✅ Akceptowano ofertę gracza <@${userId}>. Bot wysłał mu wiadomość na PW!`, ephemeral: false });
       } catch (err) {
-        console.error('Błąd tworzenia kanału:', err);
-        await interaction.editReply({ content: '❌ Wystąpił błąd podczas tworzenia kanału. Upewnij się, że bot ma uprawnienia do zarządzania kanałami.' });
+        await interaction.reply({ content: `⚠️ Oferta zaakceptowana, ale gracz ma zablokowane PW (nie można było wysłać wiadomości).`, ephemeral: false });
+      }
+    }
+
+    if (action === 'reject') {
+      const itemName = rest[0];
+
+      try {
+        const user = await client.users.fetch(userId);
+        await user.send(
+          `❌ **Twoja oferta została ODRZUCONA.**\n\n` +
+          `📦 **Przedmiot:** ${itemName}\n` +
+          `Niestety aktualnie nie jesteśmy zainteresowani kupnem tego przedmiotu lub zaproponowana cena była za wysoka.`
+        );
+
+        await interaction.reply({ content: `❌ Odrzucono ofertę gracza <@${userId}>. Bot wysłał powiadomienie na PW!`, ephemeral: false });
+      } catch (err) {
+        await interaction.reply({ content: `⚠️ Oferta odrzucona. Bot nie mógł wysłać PW (zablokowane prywatne wiadomości u gracza).`, ephemeral: false });
       }
     }
   }
