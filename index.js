@@ -9,18 +9,19 @@ const {
   TextInputBuilder, 
   TextInputStyle, 
   PermissionFlagsBits, 
+  ChannelType,
   REST, 
   Routes, 
   SlashCommandBuilder 
 } = require('discord.js');
 const http = require('http');
 
-// ==================== KONFIGURACJA KANAŁÓW ====================
+// ==================== KONFIGURACJA KANAŁÓW I ROLI ====================
 const PRIVATE_ADMIN_CHANNEL_ID = '1556289411422093362';
 const PUBLIC_LOGS_CHANNEL_ID = '1556292054827536474';
-// =============================================================
+const ADMIN_ROLE_ID = '1556293807019008160'; // ID roli zarządu skupu
+// ====================================================================
 
-// Baza danych w pamięci bota
 let isSkupOpen = true;
 const stats = {
   totalSpent: 0,
@@ -29,7 +30,7 @@ const stats = {
 
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Bot Skup MajesticRP v4 Ultra dziala!');
+  res.end('Bot Skup MajesticRP v6 Tickets dziala!');
 }).listen(process.env.PORT || 3000);
 
 const client = new Client({
@@ -49,7 +50,6 @@ process.on('uncaughtException', (error) => {
   console.error('⚠️ Wyłapano nieobsługiwany wyjątek (uncaughtException):', error);
 });
 
-// Rejestracja komend slash
 const commands = [
   new SlashCommandBuilder()
     .setName('setup_skup')
@@ -91,7 +91,7 @@ client.once('ready', async () => {
 
 client.on('interactionCreate', async (interaction) => {
   try {
-    // 1. Komendy Admina (/setup_skup, /skup_status, /statystyki)
+    // 1. Komendy Slash
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'setup_skup') {
         const embed = new EmbedBuilder()
@@ -103,7 +103,7 @@ client.on('interactionCreate', async (interaction) => {
             '📌 **Zasady Skupu:**\n' +
             '• Skupujemy przedmioty za **50% – 70%** wartości rynkowej.\n' +
             '• Nie skupujemy zwykłych ubrań ze sklepów ani podstawowych aut.\n' +
-            '• Odpowiedź z decyzją lub kontrofertą otrzymasz na PW od bota!'
+            '• W przypadku wstępnego zainteresowania otworzy się prywatny ticket do rozmowy!'
           )
           .setColor(0x2b2d31)
           .setFooter({ text: 'Kliknij przycisk poniżej, aby wysłać zgłoszenie.' });
@@ -141,7 +141,7 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // 2. Kliknięcie "Sprzedaj Przedmiot"
+    // 2. Otwieranie Formularza
     if (interaction.isButton() && interaction.customId === 'start_sell') {
       if (!isSkupOpen) {
         return await interaction.reply({
@@ -200,7 +200,7 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.showModal(modal);
     }
 
-    // 3. Obsługa Wysyłania Formularza
+    // 3. Wysyłanie Oferty
     if (interaction.isModalSubmit() && interaction.customId === 'sell_modal') {
       const itemName = interaction.fields.getTextInputValue('item_name');
       const marketValueRaw = interaction.fields.getTextInputValue('market_value').replace(/[^0-9]/g, '');
@@ -219,7 +219,7 @@ client.on('interactionCreate', async (interaction) => {
         .setColor(0x3498db)
         .addFields(
           { name: '👤 Sprzedający', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-          { name: '🆔 ID Discord Gracza', value: `\`${interaction.user.id}\``, inline: true },
+          { name: '🆔 ID Discord', value: `\`${interaction.user.id}\``, inline: true },
           { name: '📦 Przedmiot', value: itemName, inline: false },
           { name: '💎 Rynkowa Wartość', value: `$${marketValue.toLocaleString()}`, inline: true },
           { name: '💵 Chce dostać', value: `$${expectedPrice.toLocaleString()}`, inline: true },
@@ -230,23 +230,25 @@ client.on('interactionCreate', async (interaction) => {
         .setFooter({ text: 'System Skupu • Wybierz decyzję poniżej' })
         .setTimestamp();
 
+      const safeItemName = itemName.replace(/\s+/g, '-');
+
       const adminButtons = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`accept_${interaction.user.id}_${itemName}_${expectedPrice}`)
-          .setLabel('✅ Akceptuj')
+          .setCustomId(`accept_${interaction.user.id}_${safeItemName}_${expectedPrice}`)
+          .setLabel('✅ Akceptuj & Otwórz Ticket')
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
-          .setCustomId(`counter_${interaction.user.id}_${itemName}`)
-          .setLabel('💬 Zaproponuj Cenę')
+          .setCustomId(`counter_${interaction.user.id}_${safeItemName}`)
+          .setLabel('💬 Kontroferta & Otwórz Ticket')
           .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
-          .setCustomId(`reject_${interaction.user.id}_${itemName}`)
+          .setCustomId(`reject_${interaction.user.id}_${safeItemName}`)
           .setLabel('❌ Odrzuć')
           .setStyle(ButtonStyle.Danger)
       );
 
       await interaction.reply({ 
-        content: '✅ Twoja oferta została wysłana! Otrzymasz wiadomość na PW (od bota), gdy zostanie przeanalizowana.', 
+        content: '✅ Twoja oferta została pomyślnie wysłana! Jeśli zarząd będzie zainteresowany, otworzy się prywatny ticket do omówienia szczegółów.', 
         ephemeral: true 
       });
 
@@ -264,68 +266,58 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // 4. Obsługa Przycisków Akcji przez Zarząd
+    // 4. Akcje Zarządu (Tworzenie Ticketu)
     if (interaction.isButton()) {
-      const [action, userId, ...rest] = interaction.customId.split('_');
+      const parts = interaction.customId.split('_');
+      const action = parts[0];
 
+      // TICKET - Akceptacja
       if (action === 'accept') {
-        const itemName = rest[0];
-        const price = parseInt(rest[1]) || 0;
+        const userId = parts[1];
+        const rawItemName = parts[2] ? parts[2].replace(/-/g, ' ') : 'Przedmiot';
+        const price = parseInt(parts[3]) || 0;
 
-        // Aktualizacja statystyk
-        stats.totalSpent += price;
-        stats.totalItems += 1;
+        const guild = interaction.guild;
+        const user = await client.users.fetch(userId);
 
-        try {
-          const user = await client.users.fetch(userId);
-          
-          const vouchRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId('write_vouch')
-              .setLabel('⭐ Wystaw Opinię (Vouch)')
-              .setStyle(ButtonStyle.Secondary)
-          );
+        // Tworzenie prywatnego kanału ticketowego
+        const ticketChannel = await guild.channels.create({
+          name: `skup-${user.username}`,
+          type: ChannelType.GuildText,
+          permissionOverwrites: [
+            { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] }, // Ukryte dla reszty
+            { id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }, // Widoczne dla gracza
+            { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] } // Widoczne dla Zarządu
+          ]
+        });
 
-          await user.send({
-            content: `🎉 **Twoja oferta została AKCEPTOWANA!**\n\n` +
-            `📦 **Przedmiot:** ${itemName}\n` +
-            `💵 **Kwota:** $${price.toLocaleString()}\n\n` +
-            `Skontaktuj się z właścicielem skupu w grze/na Discordzie, aby sfinalizować transakcję!`,
-            components: [vouchRow]
-          });
+        const ticketEmbed = new EmbedBuilder()
+          .setTitle('🤝 TICKET TRANSAKCYJNY SKUPU')
+          .setColor(0x2ecc71)
+          .setDescription(
+            `Witaj <@${userId}>! Twój przedmiot **${rawItemName}** został wstępnie zaakceptowany za kwotę **$${price.toLocaleString()}**.\n\n` +
+            `Omówcie tutaj godziny spotkania w grze i przekazania przedmiotu.`
+          )
+          .setTimestamp();
 
-          // Wpis na publiczny kanał zrealizowanych transakcji
-          try {
-            const publicLogsChannel = await client.channels.fetch(PUBLIC_LOGS_CHANNEL_ID);
-            if (publicLogsChannel) {
-              const logEmbed = new EmbedBuilder()
-                .setTitle('🤝 ZREALIZOWANA TRANSAKCJA SKUPU')
-                .setColor(0x2ecc71)
-                .addFields(
-                  { name: '📦 Wykupiony Przedmiot', value: itemName, inline: true },
-                  { name: '💰 Wypłacona Gotówka', value: `$${price.toLocaleString()}`, inline: true },
-                  { name: '👤 Sprzedający', value: `<@${userId}>`, inline: true }
-                )
-                .setFooter({ text: 'Szybka wypłata od ręki • Dołącz do naszych zadowolonych klientów!' })
-                .setTimestamp();
+        const closeRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`closeticket_${userId}_${parts[2]}_${price}`)
+            .setLabel('🔒 Sfinalizuj & Zamknij Ticket')
+            .setStyle(ButtonStyle.Danger)
+        );
 
-              await publicLogsChannel.send({ embeds: [logEmbed] });
-            }
-          } catch (e) {
-            console.error('Błąd publikacji logu transakcji:', e);
-          }
-
-          await interaction.reply({ content: `✅ Zaakceptowano ofertę gracza <@${userId}>. Dodano do statystyk i opublikowano log!`, ephemeral: false });
-        } catch (err) {
-          await interaction.reply({ content: `⚠️️ Zaakceptowano, ale gracz ma zablokowane PW!`, ephemeral: false });
-        }
+        await ticketChannel.send({ content: `🔔 Oferta zaakceptowana! <@${userId}> <@&${ADMIN_ROLE_ID}>`, embeds: [ticketEmbed], components: [closeRow] });
+        await interaction.reply({ content: `✅ UTWORZONO TICKET: ${ticketChannel}`, ephemeral: true });
       }
 
+      // TICKET - Kontroferta
       if (action === 'counter') {
-        const itemName = rest[0];
+        const userId = parts[1];
+        const safeItemName = parts[2] || 'Przedmiot';
 
         const modal = new ModalBuilder()
-          .setCustomId(`submit_counter_${userId}_${itemName}`)
+          .setCustomId(`submit_counter_${userId}_${safeItemName}`)
           .setTitle('Zaproponuj Własną Cenę');
 
         const counterPriceInput = new TextInputBuilder()
@@ -339,24 +331,72 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.showModal(modal);
       }
 
+      // Odrzucenie
       if (action === 'reject') {
-        const itemName = rest[0];
+        const userId = parts[1];
+        const rawItemName = parts[2] ? parts[2].replace(/-/g, ' ') : 'Przedmiot';
 
         try {
           const user = await client.users.fetch(userId);
-          await user.send(
-            `❌ **Twoja oferta została ODRZUCONA.**\n\n` +
-            `📦 **Przedmiot:** ${itemName}\n` +
-            `Aktualnie nie jesteśmy zainteresowani zakupem tego przedmiotu w podanej cenie.`
-          );
-
-          await interaction.reply({ content: `❌ Odrzucono ofertę gracza <@${userId}>. Bot wysłał PW!`, ephemeral: false });
+          await user.send(`❌ **Twoja oferta na przedmiot "${rawItemName}" została odrzucona.**`);
+          await interaction.reply({ content: `❌ Odrzucono ofertę gracza <@${userId}>.`, ephemeral: true });
         } catch (err) {
-          await interaction.reply({ content: `⚠️ Odrzucono ofertę, ale gracz ma zablokowane PW!`, ephemeral: false });
+          await interaction.reply({ content: `⚠️ Odrzucono ofertę, ale gracz ma zablokowane PW.`, ephemeral: true });
         }
       }
 
-      // Przycisk "Wystaw Opinię" dla gracza
+      // Zamknięcie i sfinalizowanie Ticketu
+      if (action === 'closeticket') {
+        const userId = parts[1];
+        const rawItemName = parts[2] ? parts[2].replace(/-/g, ' ') : 'Przedmiot';
+        const price = parseInt(parts[3]) || 0;
+
+        stats.totalSpent += price;
+        stats.totalItems += 1;
+
+        // Logowanie na publicznym kanale
+        try {
+          const publicLogsChannel = await client.channels.fetch(PUBLIC_LOGS_CHANNEL_ID);
+          if (publicLogsChannel) {
+            const logEmbed = new EmbedBuilder()
+              .setTitle('🤝 ZREALIZOWANA TRANSAKCJA SKUPU')
+              .setColor(0x2ecc71)
+              .addFields(
+                { name: '📦 Wykupiony Przedmiot', value: rawItemName, inline: true },
+                { name: '💰 Wypłacona Gotówka', value: `$${price.toLocaleString()}`, inline: true },
+                { name: '👤 Sprzedający', value: `<@${userId}>`, inline: true }
+              )
+              .setFooter({ text: 'Szybka wypłata od ręki • Dołącz do naszych zadowolonych klientów!' })
+              .setTimestamp();
+
+            await publicLogsChannel.send({ embeds: [logEmbed] });
+          }
+        } catch (e) {
+          console.error('Błąd publikacji logu transakcji:', e);
+        }
+
+        // Wiadomość na PW z prośbą o opinię
+        try {
+          const user = await client.users.fetch(userId);
+          const vouchRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId('write_vouch')
+              .setLabel('⭐ Wystaw Opinię (Vouch)')
+              .setStyle(ButtonStyle.Secondary)
+          );
+
+          await user.send({
+            content: `🎉 **Dziękujemy za transakcję w naszym skupie!**\nSfinalizowano kupno przedmiotu: **${rawItemName}** za **$${price.toLocaleString()}**.\n\nZostaw opinię klikając przycisk poniżej:`,
+            components: [vouchRow]
+          });
+        } catch (e) {}
+
+        await interaction.reply('🔒 Sfinalizowano! Zamykanie i usuwanie ticketu za 5 sekund...');
+        setTimeout(() => {
+          interaction.channel.delete().catch(() => {});
+        }, 5000);
+      }
+
       if (interaction.customId === 'write_vouch') {
         const modal = new ModalBuilder()
           .setCustomId('submit_vouch_modal')
@@ -374,28 +414,51 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // 5. Wysyłanie Kontroferty
+    // Modal Kontroferty (Otwiera ticket z nową propozycją ceny)
     if (interaction.isModalSubmit() && interaction.customId.startsWith('submit_counter_')) {
-      const [, , userId, itemName] = interaction.customId.split('_');
+      const parts = interaction.customId.split('_');
+      const userId = parts[2];
+      const safeItemName = parts[3] || 'Przedmiot';
+      const rawItemName = safeItemName.replace(/-/g, ' ');
+
       const counterPriceRaw = interaction.fields.getTextInputValue('counter_price').replace(/[^0-9]/g, '');
       const counterPrice = parseInt(counterPriceRaw) || 0;
 
-      try {
-        const user = await client.users.fetch(userId);
-        await user.send(
-          `💬 **Właściciel skupu złożył KONTROFERTĘ!**\n\n` +
-          `📦 **Przedmiot:** ${itemName}\n` +
-          `💵 **Proponowana cena skupu:** $${counterPrice.toLocaleString()}\n\n` +
-          `Jeśli zgadzasz się na tę kwotę, napisz w odpowiedzi na to PW lub skontaktuj się bezpośrednio z właścicielem skupu!`
-        );
+      const guild = interaction.guild;
+      const user = await client.users.fetch(userId);
 
-        await interaction.reply({ content: `💬 Wysyłano kontrofertę ($${counterPrice.toLocaleString()}) do gracza <@${userId}> na PW!`, ephemeral: false });
-      } catch (err) {
-        await interaction.reply({ content: `⚠️ Nie udało się wysłać kontroferty (gracz zablokował PW).`, ephemeral: false });
-      }
+      const ticketChannel = await guild.channels.create({
+        name: `kontroferta-${user.username}`,
+        type: ChannelType.GuildText,
+        permissionOverwrites: [
+          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+          { id: ADMIN_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+        ]
+      });
+
+      const ticketEmbed = new EmbedBuilder()
+        .setTitle('💬 KONTROFERTA ZARZĄDU SKUPU')
+        .setColor(0x3498db)
+        .setDescription(
+          `Witaj <@${userId}>! Przeanalizowaliśmy Twoją ofertę na **${rawItemName}**.\n\n` +
+          `💰 **Nasza propozycja ceny skupu:** **$${counterPrice.toLocaleString()}**\n\n` +
+          `Napisz na tym kanale, czy zgadzasz się na taką kwotę!`
+        )
+        .setTimestamp();
+
+      const closeRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`closeticket_${userId}_${safeItemName}_${counterPrice}`)
+          .setLabel('🔒 Sfinalizuj & Zamknij Ticket')
+          .setStyle(ButtonStyle.Success)
+      );
+
+      await ticketChannel.send({ content: `🔔 Otrzymałeś kontrofertę! <@${userId}> <@&${ADMIN_ROLE_ID}>`, embeds: [ticketEmbed], components: [closeRow] });
+      await interaction.reply({ content: `💬 Utworzono ticket z kontrofertą: ${ticketChannel}`, ephemeral: true });
     }
 
-    // 6. Wysyłanie Opinii przez Gracza
+    // Modal Wystawiania Opinii
     if (interaction.isModalSubmit() && interaction.customId === 'submit_vouch_modal') {
       const comment = interaction.fields.getTextInputValue('vouch_comment');
 
