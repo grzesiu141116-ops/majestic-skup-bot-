@@ -16,7 +16,7 @@ const {
 const http = require('http');
 
 // TUTAJ WKLEJ ID SWOJEGO PRYWATNEGO KANAŁU SZTABOWEGO (np. '123456789012345678')
-const PRIVATE_ADMIN_CHANNEL_ID = 'WPISZ_TUTAJ_ID_PRYWATNEGO_KANALU';
+const PRIVATE_ADMIN_CHANNEL_ID = '1556289411422093362';
 
 // Serwer HTTP dla Render.com
 http.createServer((req, res) => {
